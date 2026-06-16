@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 
 export function RegisterPage() {
   const [, navigate] = useLocation();
@@ -19,6 +19,9 @@ export function RegisterPage() {
     passwordConfirm: "",
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+  const utils = trpc.useUtils();
 
   const registerMutation = trpc.auth.register.useMutation({
     onSuccess: () => {
@@ -134,32 +137,82 @@ export function RegisterPage() {
               <Label htmlFor="password" className="text-sm font-medium">
                 Senha
               </Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                value={formData.password}
-                onChange={handleChange}
-                placeholder="Mínimo 6 caracteres"
-                required
-                className="mt-1"
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={handleChange}
+                  placeholder="Mínimo 6 caracteres"
+                  required
+                  className="mt-1 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 mt-0.5"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              {formData.password && (
+                <div className="flex gap-1 mt-2">
+                  {[...Array(4)].map((_, i) => {
+                    let strength = 0;
+                    const pass = formData.password;
+                    if (pass.length >= 6) strength += 1;
+                    if (/[A-Z]/.test(pass)) strength += 1;
+                    if (/[0-9]/.test(pass)) strength += 1;
+                    if (/[^A-Za-z0-9]/.test(pass)) strength += 1;
+                    
+                    return (
+                      <div
+                        key={i}
+                        className={`h-1.5 w-full rounded-full transition-colors ${
+                          i < strength
+                            ? strength < 2
+                              ? "bg-red-500"
+                              : strength < 3
+                              ? "bg-yellow-500"
+                              : "bg-green-500"
+                            : "bg-gray-200"
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div>
-              <Label htmlFor="passwordConfirm" className="text-sm font-medium">
-                Confirmar Senha
+              <Label htmlFor="passwordConfirm" className="text-sm font-medium flex justify-between">
+                <span>Confirmar Senha</span>
+                {formData.passwordConfirm && (
+                  <span className={formData.password === formData.passwordConfirm ? "text-green-600" : "text-red-600"}>
+                    {formData.password === formData.passwordConfirm ? "✅" : "❌"}
+                  </span>
+                )}
               </Label>
-              <Input
-                id="passwordConfirm"
-                name="passwordConfirm"
-                type="password"
-                value={formData.passwordConfirm}
-                onChange={handleChange}
-                placeholder="Confirme sua senha"
-                required
-                className="mt-1"
-              />
+              <div className="relative">
+                <Input
+                  id="passwordConfirm"
+                  name="passwordConfirm"
+                  type={showPasswordConfirm ? "text" : "password"}
+                  value={formData.passwordConfirm}
+                  onChange={handleChange}
+                  placeholder="Confirme sua senha"
+                  required
+                  className="mt-1 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordConfirm(!showPasswordConfirm)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 mt-0.5"
+                >
+                  {showPasswordConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <Button
@@ -200,10 +253,13 @@ export function LoginPage() {
     password: "",
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const utils = trpc.useUtils();
 
   const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Login realizado com sucesso!");
+      await utils.auth.me.invalidate();
       navigate("/game");
     },
     onError: (error) => {
@@ -262,16 +318,25 @@ export function LoginPage() {
               <Label htmlFor="password" className="text-sm font-medium">
                 Senha
               </Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                value={formData.password}
-                onChange={handleChange}
-                placeholder="Sua senha"
-                required
-                className="mt-1"
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  value={formData.password}
+                  onChange={handleChange}
+                  placeholder="Sua senha"
+                  required
+                  className="mt-1 pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 mt-0.5"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
             <Button

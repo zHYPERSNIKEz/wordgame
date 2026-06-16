@@ -30,7 +30,7 @@ interface GameState {
 
 export default function GamePage() {
   const [, navigate] = useLocation();
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login" });
   const [gameState, setGameState] = useState<GameState>({
     sessionId: null,
     difficulty: null,
@@ -215,6 +215,16 @@ export default function GamePage() {
         return "";
     }
   };
+
+
+  
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
   if (!user) {
     return null;

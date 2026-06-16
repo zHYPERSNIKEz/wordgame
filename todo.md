@@ -101,4 +101,4 @@
 - [x] Create checkpoint for production release
 
 ## Known Issues & Bugs
-(To be updated as development progresses)
+- [ ] **Testes Desatualizados**: Os testes automatizados em `game.test.ts` e `security.test.ts` estão falhando (10 falhas). Eles precisam ser atualizados para enviar o parâmetro `difficulty` em `game.startSession()`, usar o nome correto da rota de admin (`admin.getMetrics()` ao invés de `admin.getDashboardSummary()`) e ajustar as asserções de segurança (NOT_FOUND vs FORBIDDEN).

@@ -26,6 +26,7 @@ import {
 } from "./auth";
 import { generateQuestion, getPointsForDifficulty } from "./questionGenerator";
 import { COOKIE_NAME } from "../shared/const";
+import { sdk } from "./_core/sdk";
 
 // Validation schemas
 const registerSchema = z.object({
@@ -77,8 +78,9 @@ export const appRouter = router({
         }
 
         // Set session cookie
+        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name ?? "" });
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        ctx.res.cookie(COOKIE_NAME, user.id.toString(), cookieOptions);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, cookieOptions);
 
         return toPublicUser(user);
       }),
