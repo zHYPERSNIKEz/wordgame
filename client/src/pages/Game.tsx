@@ -150,7 +150,6 @@ export default function GamePage() {
       }, 1500);
     } catch (error) {
       toast.error("Erro ao enviar resposta");
-    } finally {
       setGameState((prev) => ({ ...prev, isLoading: false }));
     }
   };
@@ -234,16 +233,16 @@ export default function GamePage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Jogo de Palavras</h1>
-            <p className="text-gray-600">Bem-vindo, {user.name}!</p>
+            <p className="text-gray-600 truncate max-w-[250px] sm:max-w-none">Bem-vindo, {user.name}!</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
               onClick={() => navigate("/history")}
-              className="flex items-center gap-2"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2"
             >
               <BarChart3 className="h-4 w-4" />
               Histórico
@@ -251,7 +250,7 @@ export default function GamePage() {
             <Button
               variant="outline"
               onClick={handleLogout}
-              className="flex items-center gap-2"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2"
             >
               <LogOut className="h-4 w-4" />
               Sair

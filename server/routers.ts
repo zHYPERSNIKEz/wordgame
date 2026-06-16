@@ -28,6 +28,9 @@ import { generateQuestion, getPointsForDifficulty } from "./questionGenerator";
 import { COOKIE_NAME } from "../shared/const";
 import { sdk } from "./_core/sdk";
 
+// Memory to store the active question for each session to properly validate answers
+const activeQuestions = new Map<number, ReturnType<typeof generateQuestion>>();
+
 // Validation schemas
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -122,6 +125,7 @@ export const appRouter = router({
 
         // Generate a new question based on difficulty
         const question = generateQuestion((session as any).difficulty as "easy" | "medium" | "hard");
+        activeQuestions.set(input.sessionId, question);
 
         return {
           word: question.word,
@@ -147,8 +151,14 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN" });
         }
 
-        // Generate the question again to validate
-        const question = generateQuestion((session as any).difficulty as "easy" | "medium" | "hard");
+        // Retrieve the generated question from memory
+        const question = activeQuestions.get(input.sessionId);
+        if (!question) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhuma pergunta ativa encontrada para esta sessão." });
+        }
+        
+        // Remove from memory to prevent double-answering
+        activeQuestions.delete(input.sessionId);
         const isCorrect = input.selectedOption === question.correctOption;
         const pointsEarned = isCorrect ? getPointsForDifficulty(session.difficulty as "easy" | "medium" | "hard") : 0;
 
