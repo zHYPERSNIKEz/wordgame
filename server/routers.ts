@@ -1,6 +1,6 @@
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
+import { publicProcedure, router, protectedProcedure, adminProcedure, moderatorProcedure } from "./_core/trpc";
 import { z } from "zod";
 import {
   createGameSession,
@@ -17,6 +17,11 @@ import {
   getUserById,
   updateUser,
   getUserByOpenId,
+  createClass,
+  getClassByInviteCode,
+  getClassesByTeacherId,
+  getClassById,
+  getStudentsByClassId,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import {
@@ -37,6 +42,7 @@ const registerSchema = z.object({
   email: z.string().email("Invalid email address"),
   age: z.number().int().min(5, "Age must be at least 5").max(120, "Age must be valid"),
   school: z.string().optional().nullable(),
+  inviteCode: z.string().optional().nullable(),
   password: z.string().min(6, "Password must be at least 6 characters"),
   passwordConfirm: z.string(),
 }).refine((data) => data.password === data.passwordConfirm, {
@@ -64,6 +70,7 @@ export const appRouter = router({
           password: input.password,
           age: input.age,
           school: input.school || undefined,
+          inviteCode: input.inviteCode || undefined,
         });
 
         return toPublicUser(user);
@@ -273,12 +280,64 @@ export const appRouter = router({
       }),
   }),
 
-  admin: router({
-    getMetrics: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user?.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
+  user: router({
+    updateProfile: protectedProcedure
+      .input(z.object({
+        name: z.string().min(2).optional(),
+        age: z.number().int().min(5).max(120).optional(),
+        school: z.string().nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        // Users can only update their own profile because ctx.user.id is used
+        await updateUser(ctx.user.id, {
+          name: input.name,
+          age: input.age,
+          school: input.school,
+        });
+        
+        const updatedUser = await getUserById(ctx.user.id);
+        if (!updatedUser) throw new TRPCError({ code: "NOT_FOUND" });
+        
+        return toPublicUser(updatedUser);
+      }),
+  }),
 
+  teacher: router({
+    createClass: moderatorProcedure
+      .input(z.object({ name: z.string().min(2) }))
+      .mutation(async ({ ctx, input }) => {
+        // Generate a random 6-character invite code
+        const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        
+        const classId = await createClass({
+          name: input.name,
+          teacherId: ctx.user.id,
+          inviteCode,
+        });
+        
+        return { classId, inviteCode };
+      }),
+
+    getMyClasses: moderatorProcedure.query(async ({ ctx }) => {
+      return await getClassesByTeacherId(ctx.user.id);
+    }),
+
+    getClassStudents: moderatorProcedure
+      .input(z.object({ classId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const cls = await getClassById(input.classId);
+        if (!cls) throw new TRPCError({ code: "NOT_FOUND" });
+        if (cls.teacherId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        
+        const students = await getStudentsByClassId(input.classId);
+        return students.map(toPublicUser);
+      }),
+  }),
+
+  admin: router({
+    getMetrics: moderatorProcedure.query(async () => {
       const ageGroupMetrics = await getAgeGroupMetrics();
       const schoolMetrics = await getSchoolMetrics();
       const scorePerformance = await getScorePerformanceByAge();
@@ -290,14 +349,17 @@ export const appRouter = router({
       };
     }),
 
-    getAllUsers: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user?.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
-
+    getAllUsers: adminProcedure.query(async () => {
       // This would need a getAllUsers function in db.ts
       return [];
     }),
+
+    promoteToModerator: adminProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input }) => {
+        await updateUser(input.userId, { role: "moderator" });
+        return { success: true };
+      }),
   }),
 });
 

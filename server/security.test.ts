@@ -4,7 +4,7 @@ import type { TrpcContext } from "./_core/context";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createContext(userId: number = 1, role: "user" | "admin" = "user"): TrpcContext {
+function createContext(userId: number = 1, role: "user" | "admin" | "moderator" = "user"): TrpcContext {
   const user: AuthenticatedUser = {
     id: userId,
     openId: `email:user${userId}@example.com`,
@@ -33,11 +33,11 @@ describe("Security & Authorization", () => {
       const ctx = createContext(1, "admin");
       const caller = appRouter.createCaller(ctx);
 
-      const result = await caller.admin.getDashboardSummary();
+      const result = await caller.admin.getMetrics();
 
-      expect(result).toHaveProperty("ageMetrics");
+      expect(result).toHaveProperty("ageGroupMetrics");
       expect(result).toHaveProperty("schoolMetrics");
-      expect(result).toHaveProperty("scoreMetrics");
+      expect(result).toHaveProperty("scorePerformance");
     });
 
     it("should deny regular user access to admin dashboard", async () => {
@@ -45,8 +45,25 @@ describe("Security & Authorization", () => {
       const caller = appRouter.createCaller(ctx);
 
       try {
-        await caller.admin.getDashboardSummary();
+        await caller.admin.getMetrics();
         expect.fail("Should have thrown FORBIDDEN error");
+      } catch (error: any) {
+        expect(error.code).toBe("FORBIDDEN");
+      }
+    });
+
+    it("should allow moderator to access metrics but deny access to admin-only functions", async () => {
+      const ctx = createContext(1, "moderator");
+      const caller = appRouter.createCaller(ctx);
+
+      // Should allow metrics (moderatorProcedure)
+      const result = await caller.admin.getMetrics();
+      expect(result).toHaveProperty("ageGroupMetrics");
+
+      // Should deny getAllUsers (adminProcedure)
+      try {
+        await caller.admin.getAllUsers();
+        expect.fail("Should have thrown FORBIDDEN error for moderator on admin-only route");
       } catch (error: any) {
         expect(error.code).toBe("FORBIDDEN");
       }
@@ -83,14 +100,12 @@ describe("Security & Authorization", () => {
       const caller1 = appRouter.createCaller(ctx1);
       const caller2 = appRouter.createCaller(ctx2);
 
-      const session = await caller1.game.startSession();
+      const session = await caller1.game.startSession({ difficulty: "easy" });
 
       try {
         await caller2.game.submitAnswer({
           sessionId: session.sessionId,
-          word: "test",
-          definition: "test",
-          userAnswer: "test",
+          selectedOption: 1,
           timeSpentSeconds: 1,
         });
         expect.fail("Should have thrown FORBIDDEN error");

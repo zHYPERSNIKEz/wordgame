@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { TRPCError } from "@trpc/server";
-import { getUserByOpenId, getUserById, upsertUser, updateUser } from "./db";
+import { getUserByOpenId, getUserById, upsertUser, updateUser, getClassByInviteCode } from "./db";
 import type { User, UserPublic } from "../drizzle/schema";
 
 const SALT_ROUNDS = 10;
@@ -28,6 +28,7 @@ export async function registerUser(input: {
   password: string;
   age: number;
   school?: string;
+  inviteCode?: string;
 }): Promise<User> {
   // Validate input
   if (!input.email || !input.password || !input.name) {
@@ -54,6 +55,19 @@ export async function registerUser(input: {
   // Hash password
   const passwordHash = await hashPassword(input.password);
 
+  // Handle invite code
+  let classId: number | null = null;
+  if (input.inviteCode) {
+    const cls = await getClassByInviteCode(input.inviteCode);
+    if (!cls) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Invalid invite code",
+      });
+    }
+    classId = cls.id;
+  }
+
   // Create user with a temporary openId (email-based for password auth)
   const openId = `email:${input.email}`;
 
@@ -65,6 +79,7 @@ export async function registerUser(input: {
       passwordHash,
       age: input.age,
       school: input.school || null,
+      classId,
       loginMethod: "password",
       role: "user",
     });

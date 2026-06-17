@@ -10,6 +10,8 @@ import {
   InsertGameSession,
   InsertGameAnswer,
   InsertUserStats,
+  classes,
+  InsertClass,
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -245,6 +247,61 @@ export async function getAdminMetrics(metricType: string) {
     .from(adminMetrics)
     .where(eq(adminMetrics.metricType, metricType))
     .orderBy(adminMetrics.metricValue);
+}
+
+// Class & Teacher queries
+export async function createClass(cls: InsertClass) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.insert(classes).values(cls);
+  return result[0].insertId;
+}
+
+export async function getClassByInviteCode(inviteCode: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(classes)
+    .where(eq(classes.inviteCode, inviteCode))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getClassesByTeacherId(teacherId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(classes)
+    .where(eq(classes.teacherId, teacherId));
+}
+
+export async function getClassById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(classes)
+    .where(eq(classes.id, id))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getStudentsByClassId(classId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(users)
+    .where(eq(users.classId, classId));
 }
 
 export async function getAgeGroupMetrics() {

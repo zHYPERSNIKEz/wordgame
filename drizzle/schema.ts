@@ -11,9 +11,10 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }).unique(),
   passwordHash: text("passwordHash"),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "moderator"]).default("user").notNull(),
   age: int("age"),
   school: varchar("school", { length: 255 }),
+  classId: int("classId"), // Link to a class (for students)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -21,11 +22,30 @@ export const users = mysqlTable("users", {
   ageIdx: index("age_idx").on(table.age),
   schoolIdx: index("school_idx").on(table.school),
   emailIdx: index("email_idx").on(table.email),
+  classIdx: index("class_idx").on(table.classId),
 }));
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type UserPublic = Omit<User, 'passwordHash'>;
+
+/**
+ * Classes table - managed by teachers (moderators)
+ */
+export const classes = mysqlTable("classes", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  teacherId: int("teacherId").notNull(),
+  inviteCode: varchar("inviteCode", { length: 10 }).unique().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  teacherIdx: index("teacher_idx").on(table.teacherId),
+  inviteCodeIdx: index("invite_code_idx").on(table.inviteCode),
+}));
+
+export type Class = typeof classes.$inferSelect;
+export type InsertClass = typeof classes.$inferInsert;
 
 /**
  * Game sessions table - tracks each user's game session
