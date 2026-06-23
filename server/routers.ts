@@ -350,8 +350,9 @@ export const appRouter = router({
     }),
 
     getAllUsers: adminProcedure.query(async () => {
-      // This would need a getAllUsers function in db.ts
-      return [];
+      const { getAllUsers } = await import('./db');
+      const allUsers = await getAllUsers();
+      return allUsers.map(toPublicUser);
     }),
 
     promoteToModerator: adminProcedure

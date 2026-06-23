@@ -383,3 +383,13 @@ export async function getScorePerformanceByAge() {
 
   return result[0];
 }
+
+export async function getAllUsers() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return await db
+    .select()
+    .from(users)
+    .orderBy(users.createdAt);
+}

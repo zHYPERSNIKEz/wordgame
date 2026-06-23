@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Loader2, Eye, EyeOff } from "lucide-react";
+
+import { useAuth } from "@/_core/hooks/useAuth";
 
 export function RegisterPage() {
   const [, navigate] = useLocation();
@@ -257,15 +259,31 @@ export function LoginPage() {
   const utils = trpc.useUtils();
 
   const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (userData) => {
       toast.success("Login realizado com sucesso!");
-      await utils.auth.me.invalidate();
-      navigate("/game");
+      await utils.auth.me.refetch();
+      
+      // Redireciona com base na role
+      if (userData.role === 'admin' || userData.role === 'moderator') {
+        navigate("/admin");
+      } else {
+        navigate("/game");
+      }
     },
     onError: (error) => {
       toast.error(error.message || "Erro ao fazer login");
     },
   });
+
+  const { user } = useAuth();
+  
+  useEffect(() => {
+    // Apenas redireciona automaticamente se o usuário já estiver logado ao entrar na página de login
+    if (user && !loginMutation.isPending && !loginMutation.isSuccess) {
+      if (user.role === 'admin' || user.role === 'moderator') navigate("/admin");
+      else navigate("/game");
+    }
+  }, [user, navigate, loginMutation.isPending, loginMutation.isSuccess]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
