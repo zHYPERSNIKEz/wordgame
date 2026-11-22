@@ -1,6 +1,6 @@
-# Arquitetura e Adaptação Standalone para Vercel — `word-game-app` (Modo Demonstração)
+# Arquitetura e Adaptação Standalone para Vercel — `WordGame` (Modo Demonstração)
 
-Este documento consolida a análise completa da arquitetura original do `word-game-app`, o mapeamento de suas dependências externas e as adaptações implementadas para execução **100% standalone no navegador** (sem banco de dados, servidor Express ou credenciais OAuth externos) com deploy estático na **Vercel**.
+Este documento consolida a análise completa da arquitetura original do `WordGame`, o mapeamento de suas dependências externas e as adaptações implementadas para execução **100% standalone no navegador** (sem banco de dados, servidor Express ou credenciais OAuth externos) com deploy estático na **Vercel**.
 
 ---
 

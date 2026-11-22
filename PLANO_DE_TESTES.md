@@ -1,40 +1,48 @@
-# 📝 Plano de Testes - Word Game App
+# 📝 Plano de Testes — WordGame (Modo Demonstração & Full-Stack)
 
-Este documento serve como um roteiro passo a passo para verificar se a aplicação está funcionando perfeitamente antes de investigar bugs ou criar novas funcionalidades.
+Roteiro prático para validar o funcionamento completo do **WordGame** localmente ou após o deploy na **Vercel**.
 
-## 1. Testes Automatizados (Base do Código)
+---
 
-Abra o terminal na pasta raiz do projeto e execute os seguintes comandos:
+## 1. Verificações Automatizadas (Terminal)
 
-- [ ] **Testes de Lógica (`pnpm test`)**
-  *Verifica se o cálculo de senhas, pontuações do jogo e bloqueios de segurança estão funcionando como o esperado.*
-- [ ] **Checagem de Tipagem (`pnpm check`)**
-  *Garante que os dados enviados do Frontend para o Backend (e vice-versa) estão no formato correto, prevenindo quebras inesperadas.*
+Na raiz do projeto, execute:
 
-## 2. Testes de Banco de Dados e Ambiente
+- [x] **Checagem de Tipagem (`pnpm check`)**
+  *Valida que todo o código TypeScript (`client`, `shared` e `server`) compila sem erros.*
+- [x] **Suíte de Testes (`pnpm test`)**
+  *Executa as 6 suítes Vitest (32 testes) cobrindo modo demonstração standalone, autenticação, jogo, segurança/RBAC e turmas.*
+- [x] **Build de Produção para a Vercel (`pnpm build:client`)**
+  *Gera os arquivos estáticos da SPA em `dist/public`.*
 
-- [ ] **Sincronização (`pnpm db:push` ou `pnpm drizzle-kit migrate`)**
-  *Se rodar sem erros, significa que a conexão com o banco (sua `DATABASE_URL` no `.env`) está correta e as tabelas estão prontas.*
-- [ ] **Variáveis de Ambiente**
-  *Certifique-se de que o seu arquivo `.env` (ou os painéis do Manus) contém as chaves secretas como `JWT_SECRET` e configurações do OAuth.*
+---
 
-## 3. Testes Manuais de Fluxo do Usuário (E2E)
+## 2. Testes Manuais no Navegador (`npm run dev` ou URL da Vercel)
 
-Inicie o servidor de desenvolvimento com `pnpm dev` e abra o aplicativo no navegador (geralmente em `http://localhost:3000`). Faça as seguintes rotas:
+Inicie o projeto com `npm run dev` (disponível em `http://localhost:3000`) ou abra a URL publicada na Vercel:
 
-### 🔐 Autenticação
-- [ ] Criar uma nova conta com todos os dados preenchidos.
-- [ ] Fazer logout.
-- [ ] Tentar fazer login com uma senha errada (deve exibir erro).
-- [ ] Fazer login com sucesso.
+### 🏠 Página Inicial (`/`)
+- [x] Verificar a exibição do banner **"Modo Demonstração (Portfólio)"**.
+- [x] Testar o botão **"Resetar Dados Demo"** e confirmar a notificação de restauração dos dados iniciais.
 
-### 🎮 Gameplay (Core do App)
-- [ ] Iniciar uma sessão de jogo.
-- [ ] Verificar se uma palavra, definição e exemplo foram carregados corretamente (testa a integração com a *FreeDictionaryAPI*).
-- [ ] Responder a uma pergunta de forma propositalmente errada.
-- [ ] Responder a uma pergunta corretamente.
-- [ ] Encerrar a sessão e navegar até a página de Histórico para conferir se as estatísticas foram salvas com sucesso.
+### 🔐 Acesso Rápido em 1 Clique e Cadastro (`/login` e `/register`)
+- [x] Em `/login`, testar os 3 botões de **Acesso Rápido (1 Clique)**:
+  - **Aluno Demo** (`aluno@demo.com` / `demo123`) → redireciona para `/game`.
+  - **Professor Demo** (`professor@demo.com` / `demo123`) → redireciona para `/admin`.
+  - **Admin Demo** (`admin@demo.com` / `demo123`) → redireciona para `/admin`.
+- [x] Em `/register`, criar uma nova conta preenchendo o código de turma opcional `PORT6A` e fazer login com ela.
 
-### 🛡️ Permissões e Segurança
-- [ ] Com a conta de usuário comum que você acabou de criar, tentar acessar o painel de administração (`/admin`). **O sistema deve bloquear**.
-- [ ] (Opcional) No banco de dados, mudar a "role" do seu usuário para `admin` e tentar acessar `/admin` novamente. Dessa vez, os painéis e gráficos devem aparecer.
+### 🎮 Gameplay (`/game`)
+- [x] Clicar em **"Começar Jogo"** e escolher um nível de dificuldade (**Fácil**, **Médio** ou **Difícil**).
+- [x] Selecionar uma das 4 alternativas e clicar em **"Responder"** (verificar feedback de acerto/erro e atualização da pontuação).
+- [x] Clicar em **"Finalizar Sessão"** e confirmar o redirecionamento para `/history`.
+
+### 📊 Histórico e Detalhes (`/history`)
+- [x] Conferir os cards de estatísticas (Sessões, Pontuação Total, Acurácia e Respostas).
+- [x] Clicar em **"Ver Detalhes"** em uma sessão para abrir o modal com todas as perguntas respondidas.
+
+### 👩‍🏫 Painel do Professor e Dashboard Admin (`/admin`)
+- [x] Logado como **Professor Demo** ou **Admin Demo**, criar uma nova turma e copiar o código de convite gerado.
+- [x] Clicar em **"Ver Alunos"** na turma `PORT6A` para visualizar a lista de estudantes matriculados.
+- [x] Verificar o gráfico **Atividade por Faixa Etária** e as tabelas **Escolas Mais Ativas** e **Desempenho de Pontuação por Faixa Etária**.
+- [x] Logado como **Admin Demo**, promover um usuário comum a **Professor** na seção **"Gerenciar Professores e Usuários"**.

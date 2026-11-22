@@ -101,4 +101,4 @@
 - [x] Create checkpoint for production release
 
 ## Known Issues & Bugs
-- [ ] **Testes Desatualizados**: Os testes automatizados em `game.test.ts` e `security.test.ts` estão falhando (10 falhas). Eles precisam ser atualizados para enviar o parâmetro `difficulty` em `game.startSession()`, usar o nome correto da rota de admin (`admin.getMetrics()` ao invés de `admin.getDashboardSummary()`) e ajustar as asserções de segurança (NOT_FOUND vs FORBIDDEN).
+- [x] **Testes Atualizados e Modo Demonstração Standalone**: Todas as 6 suítes de testes (`auth.test.ts`, `auth.logout.test.ts`, `game.test.ts`, `security.test.ts`, `teacher.test.ts` e `demo.test.ts`) passam integralmente (32/32 testes) sem exigir banco externo, e a aplicação opera em modo demonstração standalone na Vercel.
