@@ -88,7 +88,10 @@ export const appRouter = router({
         }
 
         // Set session cookie
-        const sessionToken = await sdk.createSessionToken(user.openId, { name: user.name ?? "" });
+        const sessionToken = await sdk.createSessionToken(
+          user.openId ?? `email:${user.email ?? user.id}`,
+          { name: user.name ?? "" }
+        );
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(COOKIE_NAME, sessionToken, cookieOptions);
 
@@ -104,11 +107,28 @@ export const appRouter = router({
 
   game: router({
     startSession: protectedProcedure
-      .input(z.object({ difficulty: z.enum(["easy", "medium", "hard"]) }))
+      .input(
+        z
+          .object({
+            difficulty: z.enum(["easy", "medium", "hard"]).default("easy"),
+          })
+          .optional()
+      )
       .mutation(async ({ ctx, input }) => {
-        const sessionId = await createGameSession(ctx.user.id, input.difficulty);
-        return { sessionId, difficulty: input.difficulty };
+        const difficulty = input?.difficulty ?? "easy";
+        const sessionId = await createGameSession(ctx.user.id, difficulty);
+        return { sessionId, difficulty };
       }),
+
+    getRandomWord: publicProcedure.query(async () => {
+      const q = generateQuestion("easy");
+      return {
+        word: q.word,
+        definition: q.question,
+        partOfSpeech: "substantivo",
+        example: `Exemplo com a palavra ${q.word}.`,
+      };
+    }),
 
     getSession: protectedProcedure
       .input(z.object({ sessionId: z.number() }))
@@ -129,6 +149,9 @@ export const appRouter = router({
         if (session.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
+        if (session.isCompleted) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Sessão já encerrada." });
+        }
 
         // Generate a new question based on difficulty
         const question = generateQuestion((session as any).difficulty as "easy" | "medium" | "hard");
@@ -147,8 +170,11 @@ export const appRouter = router({
       .input(
         z.object({
           sessionId: z.number(),
-          selectedOption: z.number().int().min(1).max(4),
-          timeSpentSeconds: z.number().int().min(0),
+          selectedOption: z.number().int().min(1).max(4).optional(),
+          word: z.string().optional(),
+          definition: z.string().optional(),
+          userAnswer: z.string().optional(),
+          timeSpentSeconds: z.number().int().min(0).default(0),
         })
       )
       .mutation(async ({ ctx, input }) => {
@@ -157,36 +183,70 @@ export const appRouter = router({
         if (session.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
-
-        // Retrieve the generated question from memory
-        const question = activeQuestions.get(input.sessionId);
-        if (!question) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhuma pergunta ativa encontrada para esta sessão." });
+        if (session.isCompleted) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Sessão já encerrada." });
         }
-        
-        // Remove from memory to prevent double-answering
-        activeQuestions.delete(input.sessionId);
-        const isCorrect = input.selectedOption === question.correctOption;
-        const pointsEarned = isCorrect ? getPointsForDifficulty(session.difficulty as "easy" | "medium" | "hard") : 0;
 
-        // Create answer record
-        await createGameAnswer({
-          sessionId: input.sessionId,
-          userId: ctx.user.id,
-          word: question.word,
-          questionType: question.questionType,
-          question: question.question,
-          difficulty: session.difficulty,
-          correctOption: question.correctOption,
-          option1: question.options[0],
-          option2: question.options[1],
-          option3: question.options[2],
-          option4: question.options[3],
-          userSelectedOption: input.selectedOption,
-          isCorrect,
-          pointsEarned,
-          timeSpentSeconds: input.timeSpentSeconds,
-        });
+        let isCorrect = false;
+        let pointsEarned = 0;
+
+        if (input.selectedOption !== undefined) {
+          // Retrieve the generated question from memory
+          const question = activeQuestions.get(input.sessionId);
+          if (!question) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Nenhuma pergunta ativa encontrada para esta sessão." });
+          }
+
+          // Remove from memory to prevent double-answering
+          activeQuestions.delete(input.sessionId);
+          isCorrect = input.selectedOption === question.correctOption;
+          pointsEarned = isCorrect
+            ? getPointsForDifficulty(session.difficulty as "easy" | "medium" | "hard")
+            : 0;
+
+          // Create answer record
+          await createGameAnswer({
+            sessionId: input.sessionId,
+            userId: ctx.user.id,
+            word: question.word,
+            questionType: question.questionType,
+            question: question.question,
+            difficulty: session.difficulty,
+            correctOption: question.correctOption,
+            option1: question.options[0],
+            option2: question.options[1],
+            option3: question.options[2],
+            option4: question.options[3],
+            userSelectedOption: input.selectedOption,
+            isCorrect,
+            pointsEarned,
+            timeSpentSeconds: input.timeSpentSeconds,
+          });
+        } else if (input.word !== undefined) {
+          const normalizedUser = (input.userAnswer ?? "").trim().toLowerCase();
+          const normalizedWord = input.word.trim().toLowerCase();
+          isCorrect = normalizedUser.length > 0 && normalizedUser === normalizedWord;
+          pointsEarned = isCorrect
+            ? getPointsForDifficulty(session.difficulty as "easy" | "medium" | "hard")
+            : 0;
+
+          await createGameAnswer({
+            sessionId: input.sessionId,
+            userId: ctx.user.id,
+            word: input.word,
+            questionType: "meaning",
+            question: input.definition ?? null,
+            difficulty: session.difficulty,
+            isCorrect,
+            pointsEarned,
+            timeSpentSeconds: input.timeSpentSeconds,
+          });
+        } else {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nenhuma opção ou resposta informada.",
+          });
+        }
 
         // Update session
         const newTotalAnswers = session.totalAnswers + 1;
@@ -216,31 +276,61 @@ export const appRouter = router({
         if (session.userId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
+        if (session.isCompleted) {
+          return {
+            sessionId: input.sessionId,
+            score: session.totalScore,
+            totalScore: session.totalScore,
+            correctAnswers: session.correctAnswers,
+            totalAnswers: session.totalAnswers,
+            durationSeconds: session.durationSeconds ?? 0,
+          };
+        }
 
         const endedAt = new Date();
-        const durationSeconds = Math.floor(
-          (endedAt.getTime() - session.startedAt.getTime()) / 1000
+        const durationSeconds = Math.max(
+          0,
+          Math.floor((endedAt.getTime() - session.startedAt.getTime()) / 1000)
         );
 
+        activeQuestions.delete(input.sessionId);
         await updateGameSession(input.sessionId, {
           endedAt,
           durationSeconds,
           isCompleted: true,
         });
 
-        // Update user stats
+        // Update user stats (0..100 percentage scale, guarded against 0 totalAnswers)
         const stats = await getUserStats(ctx.user.id);
+        const newTotalSessions = (stats?.totalSessions ?? 0) + 1;
+        const newTotalAnswers = (stats?.totalAnswers ?? 0) + session.totalAnswers;
+        const newCorrectAnswers = (stats?.correctAnswers ?? 0) + session.correctAnswers;
+        const newIncorrectAnswers = (stats?.incorrectAnswers ?? 0) + session.incorrectAnswers;
+        const newTotalPlayTimeSeconds = (stats?.totalPlayTimeSeconds ?? 0) + durationSeconds;
+        const averageAccuracy =
+          newTotalAnswers > 0
+            ? ((newCorrectAnswers / newTotalAnswers) * 100).toFixed(2)
+            : "0.00";
+
         const newStats = {
-          totalSessions: (stats?.totalSessions ?? 0) + 1,
+          totalSessions: newTotalSessions,
           totalScore: (stats?.totalScore ?? 0) + session.totalScore,
-          averageAccuracy: ((parseFloat(stats?.averageAccuracy ?? "0") + (session.correctAnswers / session.totalAnswers)) / 2).toString(),
-          totalPlayTimeSeconds: (stats?.totalPlayTimeSeconds ?? 0) + durationSeconds,
+          totalAnswers: newTotalAnswers,
+          correctAnswers: newCorrectAnswers,
+          incorrectAnswers: newIncorrectAnswers,
+          averageAccuracy,
+          totalPlayTimeSeconds: newTotalPlayTimeSeconds,
+          averageSessionDuration:
+            newTotalSessions > 0
+              ? Math.floor(newTotalPlayTimeSeconds / newTotalSessions)
+              : 0,
         };
 
         await updateUserStats(ctx.user.id, newStats);
 
         return {
           sessionId: input.sessionId,
+          score: session.totalScore,
           totalScore: session.totalScore,
           correctAnswers: session.correctAnswers,
           totalAnswers: session.totalAnswers,

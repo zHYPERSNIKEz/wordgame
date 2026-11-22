@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -7,7 +8,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Loader2, LogOut, BarChart3 } from "lucide-react";
+import { Loader2, LogOut, BarChart3, Home, LayoutDashboard } from "lucide-react";
 
 type Difficulty = "easy" | "medium" | "hard";
 
@@ -31,6 +32,11 @@ interface GameState {
 export default function GamePage() {
   const [, navigate] = useLocation();
   const { user, loading, logout } = useAuth({ redirectOnUnauthenticated: true, redirectPath: "/login" });
+  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
+  const nextQuestionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isEndingRef = useRef(false);
+
   const [gameState, setGameState] = useState<GameState>({
     sessionId: null,
     difficulty: null,
@@ -55,6 +61,21 @@ export default function GamePage() {
   const submitAnswerMutation = trpc.game.submitAnswer.useMutation();
   const endSessionMutation = trpc.game.endSession.useMutation();
 
+  const clearPendingNextQuestion = () => {
+    if (nextQuestionTimeoutRef.current !== null) {
+      clearTimeout(nextQuestionTimeoutRef.current);
+      nextQuestionTimeoutRef.current = null;
+    }
+  };
+
+  // Cleanup any pending question timer on unmount
+  useEffect(() => {
+    return () => {
+      isEndingRef.current = true;
+      clearPendingNextQuestion();
+    };
+  }, []);
+
   // Timer for session duration
   useEffect(() => {
     if (!gameState.isActive) return;
@@ -66,37 +87,15 @@ export default function GamePage() {
     return () => clearInterval(interval);
   }, [gameState.isActive]);
 
-  const startGame = async (difficulty: Difficulty) => {
-    setGameState((prev) => ({ ...prev, isLoading: true }));
-    try {
-      const session = await startSessionMutation.mutateAsync({ difficulty });
-      setGameState((prev) => ({
-        ...prev,
-        sessionId: session.sessionId,
-        difficulty: session.difficulty as Difficulty,
-        isActive: true,
-        timeStarted: Date.now(),
-      }));
-      setShowDifficultySelector(false);
-      setSessionTime(0);
-
-      // Load first question
-      setTimeout(() => {
-        loadNextQuestion(session.sessionId);
-      }, 500);
-    } catch (error) {
-      toast.error("Erro ao iniciar sessão");
-    } finally {
-      setGameState((prev) => ({ ...prev, isLoading: false }));
-    }
-  };
-
   const loadNextQuestion = async (sessionId: number) => {
+    if (isEndingRef.current) return;
     setGameState((prev) => ({ ...prev, isLoading: true, selectedOption: null }));
     try {
       const questionData = await getQuestionMutation.mutateAsync({
         sessionId,
       });
+
+      if (isEndingRef.current) return;
 
       setGameState((prev) => ({
         ...prev,
@@ -106,27 +105,68 @@ export default function GamePage() {
         options: questionData.options,
         correctOption: questionData.correctOption,
         selectedOption: null,
+        timeStarted: Date.now(),
+        isLoading: false,
       }));
     } catch (error) {
-      toast.error("Erro ao carregar questão");
-    } finally {
+      if (!isEndingRef.current) {
+        toast.error("Erro ao carregar questão");
+      }
       setGameState((prev) => ({ ...prev, isLoading: false }));
+    }
+  };
+
+  const startGame = async (difficulty: Difficulty) => {
+    clearPendingNextQuestion();
+    isEndingRef.current = false;
+    setGameState((prev) => ({ ...prev, isLoading: true }));
+
+    try {
+      const session = await startSessionMutation.mutateAsync({ difficulty });
+      setGameState({
+        sessionId: session.sessionId,
+        difficulty: session.difficulty as Difficulty,
+        isActive: true,
+        word: "",
+        question: "",
+        questionType: "",
+        options: ["", "", "", ""],
+        correctOption: 0,
+        selectedOption: null,
+        score: 0,
+        correctAnswers: 0,
+        totalAnswers: 0,
+        timeStarted: Date.now(),
+        isLoading: true,
+      });
+      setShowDifficultySelector(false);
+      setSessionTime(0);
+
+      await loadNextQuestion(session.sessionId);
+    } catch (error) {
+      toast.error("Erro ao iniciar sessão");
+      setGameState((prev) => ({ ...prev, isLoading: false, isActive: false }));
     }
   };
 
   const handleSubmitAnswer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gameState.sessionId || gameState.selectedOption === null) {
-      toast.error("Selecione uma opção");
+    if (!gameState.sessionId || gameState.selectedOption === null || gameState.isLoading) {
+      if (gameState.selectedOption === null) {
+        toast.error("Selecione uma opção");
+      }
       return;
     }
+
+    const currentSessionId = gameState.sessionId;
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - gameState.timeStarted) / 1000));
 
     setGameState((prev) => ({ ...prev, isLoading: true }));
     try {
       const result = await submitAnswerMutation.mutateAsync({
-        sessionId: gameState.sessionId,
+        sessionId: currentSessionId,
         selectedOption: gameState.selectedOption,
-        timeSpentSeconds: Math.floor((Date.now() - gameState.timeStarted) / 1000),
+        timeSpentSeconds: elapsedSeconds,
       });
 
       setGameState((prev) => ({
@@ -142,12 +182,13 @@ export default function GamePage() {
         toast.error(`✗ Incorreto. A resposta correta era: ${gameState.options[gameState.correctOption - 1]}`);
       }
 
-      // Load next question after a short delay
-      setTimeout(() => {
-        if (gameState.sessionId) {
-          loadNextQuestion(gameState.sessionId);
+      clearPendingNextQuestion();
+      nextQuestionTimeoutRef.current = setTimeout(() => {
+        nextQuestionTimeoutRef.current = null;
+        if (!isEndingRef.current) {
+          void loadNextQuestion(currentSessionId);
         }
-      }, 1500);
+      }, 1200);
     } catch (error) {
       toast.error("Erro ao enviar resposta");
       setGameState((prev) => ({ ...prev, isLoading: false }));
@@ -157,15 +198,23 @@ export default function GamePage() {
   const handleEndSession = async () => {
     if (!gameState.sessionId) return;
 
+    isEndingRef.current = true;
+    clearPendingNextQuestion();
     setGameState((prev) => ({ ...prev, isLoading: true }));
     try {
       await endSessionMutation.mutateAsync({
         sessionId: gameState.sessionId,
       });
 
+      await Promise.all([
+        utils.game.getHistory.invalidate(),
+        utils.admin.getMetrics.invalidate(),
+      ]);
+
       toast.success("Sessão finalizada!");
       navigate("/history");
     } catch (error) {
+      isEndingRef.current = false;
       toast.error("Erro ao finalizar sessão");
     } finally {
       setGameState((prev) => ({ ...prev, isLoading: false, isActive: false }));
@@ -175,11 +224,23 @@ export default function GamePage() {
   const handleLogout = async () => {
     if (gameState.isActive) {
       if (!confirm("Tem certeza? Sua sessão será perdida.")) return;
+      isEndingRef.current = true;
+      clearPendingNextQuestion();
       if (gameState.sessionId) {
-        await endSessionMutation.mutateAsync({ sessionId: gameState.sessionId });
+        try {
+          await endSessionMutation.mutateAsync({ sessionId: gameState.sessionId });
+        } catch {
+          // Ignore end-session errors during logout
+        }
       }
+    } else {
+      isEndingRef.current = true;
+      clearPendingNextQuestion();
     }
     await logout();
+    queryClient.clear();
+    utils.auth.me.setData(undefined, null);
+    await utils.invalidate();
     navigate("/login");
   };
 
@@ -229,6 +290,8 @@ export default function GamePage() {
     return null;
   }
 
+  const isStaff = user.role === "admin" || user.role === "moderator";
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-2xl mx-auto">
@@ -238,7 +301,15 @@ export default function GamePage() {
             <h1 className="text-3xl font-bold text-gray-900">Jogo de Palavras</h1>
             <p className="text-gray-600 truncate max-w-[250px] sm:max-w-none">Bem-vindo, {user.name}!</p>
           </div>
-          <div className="flex gap-2 w-full sm:w-auto">
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={() => navigate("/")}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2"
+            >
+              <Home className="h-4 w-4" />
+              Início
+            </Button>
             <Button
               variant="outline"
               onClick={() => navigate("/history")}
@@ -247,6 +318,16 @@ export default function GamePage() {
               <BarChart3 className="h-4 w-4" />
               Histórico
             </Button>
+            {isStaff && (
+              <Button
+                variant="outline"
+                onClick={() => navigate("/admin")}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2"
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                {user.role === "admin" ? "Admin" : "Painel"}
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={handleLogout}
@@ -347,85 +428,122 @@ export default function GamePage() {
 
             {/* Game Card */}
             <Card className="p-8 shadow-lg">
-              <div className="mb-6">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <p className="text-gray-600 text-sm font-medium mb-2">PALAVRA:</p>
-                    <p className="text-3xl font-bold text-indigo-600">{gameState.word}</p>
-                  </div>
-                  <div className={`text-right ${getDifficultyColor(gameState.difficulty)}`}>
-                    <p className="text-xs font-semibold uppercase">Dificuldade</p>
-                    <p className="text-lg font-bold">{getDifficultyLabel(gameState.difficulty)}</p>
-                  </div>
+              {gameState.isLoading && !gameState.word ? (
+                <div className="py-12 text-center">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto text-indigo-600 mb-3" />
+                  <p className="text-gray-600">Carregando questão...</p>
                 </div>
-
-                <div className="bg-indigo-50 p-4 rounded-lg mb-6">
-                  <p className="text-gray-600 text-sm font-medium mb-2">QUESTÃO:</p>
-                  <p className="text-lg font-semibold text-gray-900">{gameState.question}</p>
-                </div>
-
-                <p className="text-gray-600 text-sm font-medium mb-2">TIPO:</p>
-                <p className="text-sm text-gray-700 mb-4">
-                  {gameState.questionType === "syllables" && "Contagem de Sílabas"}
-                  {gameState.questionType === "grammar" && "Classe Gramatical"}
-                  {gameState.questionType === "meaning" && "Significado"}
-                  {gameState.questionType === "accent" && "Acentuação"}
-                  {gameState.questionType === "gender" && "Gênero e Número"}
-                </p>
-              </div>
-
-              <form onSubmit={handleSubmitAnswer} className="space-y-6">
-                <div className="space-y-3">
-                  <p className="text-sm font-medium text-gray-700">Escolha a resposta correta:</p>
-                  <RadioGroup value={gameState.selectedOption?.toString() || ""}>
-                    {gameState.options.map((option, index) => (
-                      <div key={index} className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer border border-gray-200">
-                        <RadioGroupItem
-                          value={(index + 1).toString()}
-                          id={`option-${index}`}
-                          onClick={() =>
-                            setGameState((prev) => ({
-                              ...prev,
-                              selectedOption: index + 1,
-                            }))
-                          }
-                        />
-                        <Label
-                          htmlFor={`option-${index}`}
-                          className="flex-1 cursor-pointer font-medium text-gray-900"
-                        >
-                          {option}
-                        </Label>
+              ) : (
+                <>
+                  <div className="mb-6">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <p className="text-gray-600 text-sm font-medium mb-2">PALAVRA:</p>
+                        <p className="text-3xl font-bold text-indigo-600">{gameState.word}</p>
                       </div>
-                    ))}
-                  </RadioGroup>
-                </div>
+                      <div className={`text-right ${getDifficultyColor(gameState.difficulty)}`}>
+                        <p className="text-xs font-semibold uppercase">Dificuldade</p>
+                        <p className="text-lg font-bold">{getDifficultyLabel(gameState.difficulty)}</p>
+                      </div>
+                    </div>
 
-                <div className="flex gap-4">
-                  <Button
-                    type="submit"
-                    disabled={gameState.isLoading || gameState.selectedOption === null}
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2"
-                  >
-                    {gameState.isLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Verificando...
-                      </>
-                    ) : (
-                      "Responder"
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleEndSession}
-                    variant="outline"
-                    className="flex-1"
-                  >
-                    Finalizar Sessão
-                  </Button>
-                </div>
-              </form>
+                    <div className="bg-indigo-50 p-4 rounded-lg mb-6">
+                      <p className="text-gray-600 text-sm font-medium mb-2">QUESTÃO:</p>
+                      <p className="text-lg font-semibold text-gray-900">{gameState.question}</p>
+                    </div>
+
+                    <p className="text-gray-600 text-sm font-medium mb-2">TIPO:</p>
+                    <p className="text-sm text-gray-700 mb-4">
+                      {gameState.questionType === "syllables" && "Contagem de Sílabas"}
+                      {gameState.questionType === "grammar" && "Classe Gramatical"}
+                      {gameState.questionType === "meaning" && "Significado"}
+                      {gameState.questionType === "accent" && "Acentuação"}
+                      {gameState.questionType === "gender" && "Gênero e Número"}
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleSubmitAnswer} className="space-y-6">
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-gray-700">Escolha a resposta correta:</p>
+                      <RadioGroup
+                        value={gameState.selectedOption?.toString() || ""}
+                        disabled={gameState.isLoading}
+                        onValueChange={(value) => {
+                          if (gameState.isLoading) return;
+                          setGameState((prev) => ({
+                            ...prev,
+                            selectedOption: Number(value),
+                          }));
+                        }}
+                      >
+                        {gameState.options.map((option, index) => {
+                          const optionValue = index + 1;
+                          const isSelected = gameState.selectedOption === optionValue;
+                          return (
+                            <div
+                              key={index}
+                              onClick={() => {
+                                if (gameState.isLoading) return;
+                                setGameState((prev) => ({
+                                  ...prev,
+                                  selectedOption: optionValue,
+                                }));
+                              }}
+                              className={`flex items-center space-x-3 p-3 rounded-lg border transition-colors ${
+                                gameState.isLoading
+                                  ? "opacity-60 cursor-not-allowed border-gray-200"
+                                  : isSelected
+                                  ? "bg-indigo-50 border-indigo-400 cursor-pointer"
+                                  : "hover:bg-gray-50 border-gray-200 cursor-pointer"
+                              }`}
+                            >
+                              <RadioGroupItem
+                                value={optionValue.toString()}
+                                id={`option-${index}`}
+                                disabled={gameState.isLoading}
+                              />
+                              <Label
+                                htmlFor={`option-${index}`}
+                                className={`flex-1 font-medium text-gray-900 ${
+                                  gameState.isLoading ? "cursor-not-allowed" : "cursor-pointer"
+                                }`}
+                              >
+                                {option}
+                              </Label>
+                            </div>
+                          );
+                        })}
+                      </RadioGroup>
+                    </div>
+
+                    <div className="flex gap-4">
+                      <Button
+                        type="submit"
+                        disabled={gameState.isLoading || gameState.selectedOption === null}
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2"
+                      >
+                        {gameState.isLoading ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Verificando...
+                          </>
+                        ) : (
+                          "Responder"
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        onClick={handleEndSession}
+                        disabled={endSessionMutation.isPending}
+                        variant="outline"
+                        className="flex-1"
+                      >
+                        Finalizar Sessão
+                      </Button>
+                    </div>
+                  </form>
+                </>
+              )}
             </Card>
           </div>
         )}

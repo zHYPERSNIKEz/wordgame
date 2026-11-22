@@ -7,6 +7,9 @@ import {
   gameAnswers,
   userStats,
   adminMetrics,
+  GameSession,
+  GameAnswer,
+  UserStats,
   InsertGameSession,
   InsertGameAnswer,
   InsertUserStats,
@@ -16,6 +19,14 @@ import {
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+
+// In-memory fallback stores for when DATABASE_URL is not configured (e.g. unit tests)
+let nextMemorySessionId = 1;
+let nextMemoryAnswerId = 1;
+let nextMemoryStatsId = 1;
+const memorySessions = new Map<number, GameSession>();
+const memoryAnswers = new Map<number, GameAnswer[]>();
+const memoryUserStats = new Map<number, UserStats>();
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
@@ -131,7 +142,25 @@ export async function updateUser(id: number, updates: Partial<InsertUser>) {
 // Game session queries
 export async function createGameSession(userId: number, difficulty: string = "easy"): Promise<number> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    const id = nextMemorySessionId++;
+    const now = new Date();
+    memorySessions.set(id, {
+      id,
+      userId,
+      difficulty: (difficulty as "easy" | "medium" | "hard") || "easy",
+      startedAt: now,
+      endedAt: null,
+      totalScore: 0,
+      totalAnswers: 0,
+      correctAnswers: 0,
+      incorrectAnswers: 0,
+      durationSeconds: null,
+      isCompleted: false,
+      createdAt: now,
+    });
+    return id;
+  }
 
   const result = await db.insert(gameSessions).values({
     userId,
@@ -145,7 +174,7 @@ export async function createGameSession(userId: number, difficulty: string = "ea
 
 export async function getGameSession(sessionId: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return memorySessions.get(sessionId);
 
   const result = await db
     .select()
@@ -161,7 +190,16 @@ export async function updateGameSession(
   updates: Partial<InsertGameSession>
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    const existing = memorySessions.get(sessionId);
+    if (existing) {
+      memorySessions.set(sessionId, {
+        ...existing,
+        ...updates,
+      } as GameSession);
+    }
+    return;
+  }
 
   await db
     .update(gameSessions)
@@ -171,7 +209,11 @@ export async function updateGameSession(
 
 export async function getUserGameSessions(userId: number) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) {
+    return Array.from(memorySessions.values())
+      .filter((s) => s.userId === userId)
+      .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+  }
 
   return await db
     .select()
@@ -185,7 +227,32 @@ export async function createGameAnswer(
   answer: InsertGameAnswer
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    const id = nextMemoryAnswerId++;
+    const record: GameAnswer = {
+      id,
+      sessionId: answer.sessionId,
+      userId: answer.userId,
+      word: answer.word,
+      questionType: answer.questionType ?? null,
+      question: answer.question ?? null,
+      difficulty: (answer.difficulty as "easy" | "medium" | "hard" | null) ?? null,
+      correctOption: answer.correctOption ?? null,
+      option1: answer.option1 ?? null,
+      option2: answer.option2 ?? null,
+      option3: answer.option3 ?? null,
+      option4: answer.option4 ?? null,
+      userSelectedOption: answer.userSelectedOption ?? null,
+      isCorrect: answer.isCorrect,
+      pointsEarned: answer.pointsEarned ?? 0,
+      timeSpentSeconds: answer.timeSpentSeconds ?? 0,
+      createdAt: answer.createdAt ?? new Date(),
+    };
+    const list = memoryAnswers.get(answer.sessionId) ?? [];
+    list.push(record);
+    memoryAnswers.set(answer.sessionId, list);
+    return id;
+  }
 
   const result = await db.insert(gameAnswers).values(answer);
   return result[0].insertId;
@@ -193,7 +260,7 @@ export async function createGameAnswer(
 
 export async function getSessionAnswers(sessionId: number) {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return memoryAnswers.get(sessionId) ?? [];
 
   return await db
     .select()
@@ -204,7 +271,7 @@ export async function getSessionAnswers(sessionId: number) {
 // User stats queries
 export async function getUserStats(userId: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return memoryUserStats.get(userId);
 
   const result = await db
     .select()
@@ -220,7 +287,24 @@ export async function updateUserStats(
   stats: Partial<InsertUserStats>
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) {
+    const existing = memoryUserStats.get(userId);
+    const updated: UserStats = {
+      id: existing?.id ?? nextMemoryStatsId++,
+      userId,
+      totalSessions: stats.totalSessions ?? existing?.totalSessions ?? 0,
+      totalScore: stats.totalScore ?? existing?.totalScore ?? 0,
+      totalAnswers: stats.totalAnswers ?? existing?.totalAnswers ?? 0,
+      correctAnswers: stats.correctAnswers ?? existing?.correctAnswers ?? 0,
+      incorrectAnswers: stats.incorrectAnswers ?? existing?.incorrectAnswers ?? 0,
+      averageAccuracy: stats.averageAccuracy ?? existing?.averageAccuracy ?? "0.00",
+      totalPlayTimeSeconds: stats.totalPlayTimeSeconds ?? existing?.totalPlayTimeSeconds ?? 0,
+      averageSessionDuration: stats.averageSessionDuration ?? existing?.averageSessionDuration ?? 0,
+      updatedAt: new Date(),
+    };
+    memoryUserStats.set(userId, updated);
+    return;
+  }
 
   const existing = await getUserStats(userId);
 
